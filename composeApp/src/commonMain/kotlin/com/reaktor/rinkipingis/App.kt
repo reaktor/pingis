@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -55,58 +56,6 @@ inline fun <reified T : Enum<T>> T.next(): T {
     return entries[nextOrdinal]
 }
 
-class Match private constructor(
-    private val games: List<Game>
-) {
-    val currentGame = games.last()
-    val finishedGames = games.filterIsInstance<Game.FinishedGame>()
-
-
-    val reverseOrder = games.size % 2 == 0
-
-    fun point(player: Player): Match {
-        return when (val last = games.last()) {
-            is Game.FinishedGame -> throw (Exception("Can not add a point to a finished game"))
-            is Game.OngoingGame -> {
-                val lastGameWithNewPoint = last.point(player)
-                val previousGames = games.dropLast(1) + lastGameWithNewPoint
-                val matchWithNewPoint = Match(
-                    previousGames
-                )
-                if (lastGameWithNewPoint is Game.OngoingGame) {
-                    matchWithNewPoint
-                } else {
-                    matchWithNewPoint.startNextGame()
-                }
-            }
-        }
-    }
-
-    fun startNextGame(): Match {
-        val initialServe = games.last().initialServe.next()
-        val newGame = Game.OngoingGame(0, 0, initialServe, initialServe)
-        return Match(
-            games + newGame
-        )
-    }
-
-    companion object {
-        fun createNewMatch(): Match {
-            val initialServe = Player.random()
-            return Match(
-                listOf(Game.OngoingGame(0, 0, initialServe, initialServe))
-            )
-        }
-    }
-
-    val score = games.filterIsInstance<Game.FinishedGame>().fold(Pair(0, 0)) { acc, current ->
-        when (current.winner) {
-            Player.Left -> Pair(acc.first + 1, acc.second)
-            Player.Right -> Pair(acc.first, acc.second + 1)
-        }
-    }
-}
-
 sealed class Game(val pointsLeft: Int = 0, val pointsRight: Int = 0, val initialServe: Player) {
     internal val isDeuce = pointsLeft >= 10 && pointsRight >= 10
 
@@ -140,7 +89,59 @@ sealed class Game(val pointsLeft: Int = 0, val pointsRight: Int = 0, val initial
     }
 }
 
-class Matches(
+class Match private constructor(
+    private val games: List<Game>
+) {
+    val currentGame = games.last()
+    val finishedGames = games.filterIsInstance<Game.FinishedGame>()
+
+
+    val reverseOrder = games.size % 2 == 0
+
+    fun point(player: Player): Match {
+        return when (val last = games.last()) {
+            is Game.FinishedGame -> throw (Exception("Can not add a point to a finished game"))
+            is Game.OngoingGame -> {
+                val lastGameWithNewPoint = last.point(player)
+                val previousGames = games.dropLast(1) + lastGameWithNewPoint
+                val matchWithNewPoint = Match(
+                    previousGames
+                )
+                if (lastGameWithNewPoint is Game.OngoingGame) {
+                    matchWithNewPoint
+                } else {
+                    matchWithNewPoint.startNextGame()
+                }
+            }
+        }
+    }
+
+    private fun startNextGame(): Match {
+        val initialServe = games.last().initialServe.next()
+        val newGame = Game.OngoingGame(0, 0, initialServe, initialServe)
+        return Match(
+            games + newGame
+        )
+    }
+
+    companion object {
+        fun createNewMatch(): Match {
+            val initialServe = Player.random()
+            return Match(
+                listOf(Game.OngoingGame(0, 0, initialServe, initialServe))
+            )
+        }
+    }
+
+    val score = games.filterIsInstance<Game.FinishedGame>().fold(Pair(0, 0)) { acc, current ->
+        when (current.winner) {
+            Player.Left -> Pair(acc.first + 1, acc.second)
+            Player.Right -> Pair(acc.first, acc.second + 1)
+        }
+    }
+}
+
+class MatchStateWithHistory(
     val players: Map<Player, String>,
     private val matches: List<Match>,
     private val undoPointer: Int,
@@ -164,36 +165,25 @@ class Matches(
 
     fun point(player: Player) = next(matches + current.point(player), matches.size + 1)
 
-    fun startNextGame() = next(matches + current.startNextGame(), matches.size + 1)
-
     private fun next(
         matches: List<Match>, undoPointer: Int, undopointerAtStartOfUndo: Int? = null
-    ): Matches {
-        return Matches(players, matches, undoPointer, undopointerAtStartOfUndo ?: undoPointer)
+    ): MatchStateWithHistory {
+        return MatchStateWithHistory(
+            players,
+            matches,
+            undoPointer,
+            undopointerAtStartOfUndo ?: undoPointer
+        )
     }
 
     companion object {
-        fun createMatches(left: String, right: String) = Matches(
+        fun createMatches(left: String, right: String) = MatchStateWithHistory(
             mapOf(Pair(Player.Left, left), Pair(Player.Right, right)),
             listOf(Match.createNewMatch()),
             1,
             1
         )
     }
-
-
-    @Composable
-    fun Debug() {
-        Row(horizontalArrangement = spacedBy(4.dp)) {
-            for (i in 0..matches.size) {
-                Text(
-                    fontWeight = boldIf(i == undoPointer),
-                    text = if (i == undoPointerAtStartOfUndo) "<${i}>" else i.toString()
-                )
-            }
-        }
-    }
-
 }
 
 val uiWidth = 450.dp
@@ -202,80 +192,85 @@ val uiWidth = 450.dp
 @Preview
 fun App() {
     MaterialTheme {
-        var matches: Matches? by remember { mutableStateOf(null) }
+        var match: MatchStateWithHistory? by remember { mutableStateOf(null) }
 
-        Column {
-            matches?.let { nonNullMatches ->
-                Row(
-                    modifier = Modifier.width(uiWidth),
-                    horizontalArrangement = spacedBy(4.dp, alignment = Alignment.End)
-                ) {
-                    Button(
-                        enabled = nonNullMatches.canUndo,
-                        onClick = { matches = nonNullMatches.undo() },
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Text(fontSize = 12.sp, text = "undo")
+        match?.let { nonNullMatches ->
+            Match(nonNullMatches, { match = it })
+        } ?: Column(verticalArrangement = spacedBy(4.dp)) {
+            var left by remember { mutableStateOf("") }
+            var right by remember { mutableStateOf("") }
+            TextField(value = left, onValueChange = { left = it }, label = { Text("Left") })
+            TextField(value = right,
+                onValueChange = { right = it },
+                label = { Text("Right") })
+            Button(onClick = {
+                match = MatchStateWithHistory.createMatches(left, right)
+            }) {
+                Text("Start")
+            }
+        }
+
+    }
+}
+
+@Composable
+private fun Match(
+    matchState: MatchStateWithHistory,
+    next: (MatchStateWithHistory) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Bottom) {
+        Row(
+            modifier = Modifier.width(uiWidth),
+            horizontalArrangement = spacedBy(4.dp, alignment = Alignment.End)
+        ) {
+            Button(
+                enabled = matchState.canUndo,
+                onClick = { next(matchState.undo()) },
+                modifier = Modifier.height(32.dp)
+            ) {
+                Text(fontSize = 12.sp, text = "undo")
+            }
+            Button(
+                enabled = matchState.canRedo,
+                onClick = { next(matchState.redo()) },
+                modifier = Modifier.height(32.dp)
+            ) {
+                Text(fontSize = 12.sp, text = "redo")
+            }
+        }
+        val currentMatch = matchState.current
+        Row {
+            Column(modifier = Modifier.width(uiWidth)) {
+                Row(horizontalArrangement = Arrangement.SpaceAround) {
+                    Text(
+                        modifier = Modifier.weight(0.4f),
+                        textAlign = TextAlign.Center,
+                        text = matchState.players.getValue(Player.Left)
+                    )
+                    Spacer(Modifier.weight(0.2f))
+                    Text(
+                        modifier = Modifier.weight(0.4f),
+                        textAlign = TextAlign.Center,
+                        text = matchState.players.getValue(Player.Right)
+                    )
+                }
+                val finishedGames = currentMatch.finishedGames
+                if (finishedGames.isNotEmpty()) {
+                    finishedGames.forEach {
+                        Score(it.pointsLeft, it.pointsRight)
                     }
-                    Button(
-                        enabled = nonNullMatches.canRedo,
-                        onClick = { matches = nonNullMatches.redo() },
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Text(fontSize = 12.sp, text = "redo")
+                    Divider(thickness = 2.dp)
+                    currentMatch.score.let { (l, r) ->
+                        Score(l, r)
                     }
                 }
-                val aMatch = nonNullMatches.current
-                Row {
-                    Column(modifier = Modifier.width(uiWidth)) {
-                        Row(horizontalArrangement = Arrangement.SpaceAround) {
-                            Text(
-                                modifier = Modifier.weight(0.4f),
-                                textAlign = TextAlign.Center,
-                                text = nonNullMatches.players.getValue(Player.Left)
-                            )
-                            Spacer(Modifier.weight(0.2f))
-                            Text(
-                                modifier = Modifier.weight(0.4f),
-                                textAlign = TextAlign.Center,
-                                text = nonNullMatches.players.getValue(Player.Right)
-                            )
-                        }
-                        val finishedGames = aMatch.finishedGames
-                        if (finishedGames.isNotEmpty()) {
-                            finishedGames.forEach {
-                                Score(it.pointsLeft, it.pointsRight)
-                            }
-                            Divider(thickness = 2.dp)
-                            aMatch.score.let { (l, r) ->
-                                Score(l, r)
-                            }
-                        }
-                        Spacer(Modifier.height(30.dp))
-                        if (aMatch.currentGame is Game.OngoingGame) Row(horizontalArrangement = Arrangement.SpaceBetween) {
-                            GameControls(
-                                aMatch, nonNullMatches.players, aMatch.currentGame
-                            ) { player ->
-                                matches = nonNullMatches.point(player)
-
-                            }
-                        }
+                Spacer(Modifier.height(30.dp))
+                if (currentMatch.currentGame is Game.OngoingGame) Row(horizontalArrangement = Arrangement.SpaceBetween) {
+                    GameControls(
+                        currentMatch, matchState.players, currentMatch.currentGame
+                    ) { player ->
+                        next(matchState.point(player))
                     }
-                }
-
-            } ?: Column {
-                var left by remember { mutableStateOf("") }
-                var right by remember { mutableStateOf("") }
-
-                Row(horizontalArrangement = spacedBy(4.dp)) {
-                    TextField(value = left, onValueChange = { left = it }, label = { Text("Left") })
-                    TextField(value = right,
-                        onValueChange = { right = it },
-                        label = { Text("Right") })
-                    Button(onClick = { matches = Matches.createMatches(left, right) }) {
-                        Text("Start")
-                    }
-
                 }
             }
         }
