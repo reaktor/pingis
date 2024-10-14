@@ -196,7 +196,11 @@ fun App() {
 
         match?.let { nonNullMatches ->
             Match(nonNullMatches, { match = it })
-        } ?: Column(verticalArrangement = spacedBy(4.dp)) {
+        } ?: Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = spacedBy(4.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             var left by remember { mutableStateOf("") }
             var right by remember { mutableStateOf("") }
             TextField(value = left, onValueChange = { left = it }, label = { Text("Left") })
@@ -218,7 +222,11 @@ private fun Match(
     matchState: MatchStateWithHistory,
     next: (MatchStateWithHistory) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Bottom) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Bottom,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Row(
             modifier = Modifier.width(uiWidth),
             horizontalArrangement = spacedBy(4.dp, alignment = Alignment.End)
